@@ -35,17 +35,17 @@ jobs:
 
       - name: Install bump-my-version
         run: |
-          python3 -m pip install --user --upgrade pip
-          python3 -m pip install --user bump-my-version
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Bump patch version
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+           .venv/bin/python -m pip install bump-my-version
+     
+       - name: Bump patch version
         run: |
-          bump-my-version bump patch
+         .venv/bin/bump-my-version bump patch
 
       - name: Get new version
         run: |
-          VERSION=$(bump-my-version show current_version)
+          VERSION=$(.venv/bin/bump-my-version show current_version)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY" >> "$GITHUB_ENV"
           echo "New version: $VERSION"
