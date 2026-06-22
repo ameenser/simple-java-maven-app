@@ -1,0 +1,83 @@
+name: CI/CD to AWS ECR
+
+on:
+  push:
+    branches:
+      - AWS-Infrastructure
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 619605943762.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: simple-java-maven-app
+  CONTAINER_NAME: simple-java-app
+
+jobs:
+  build-push-deploy:
+    runs-on: self-hosted
+
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install bump-my-version
+        run: |
+          python3 -m pip install --user --upgrade pip
+          python3 -m pip install --user bump-my-version
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Bump patch version
+        run: |
+          bump-my-version bump patch
+
+      - name: Get new version
+        run: |
+          VERSION=$(bump-my-version show current_version)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY" >> "$GITHUB_ENV"
+          echo "New version: $VERSION"
+
+      - name: Login to AWS ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t $IMAGE_URI:$VERSION \
+            -t $IMAGE_URI:latest \
+            .
+
+      - name: Push Docker image to ECR
+        run: |
+          docker push $IMAGE_URI:$VERSION
+          docker push $IMAGE_URI:latest
+
+      - name: Deploy container from ECR
+        run: |
+          docker rm -f $CONTAINER_NAME || true
+          docker pull $IMAGE_URI:$VERSION
+          docker run --name $CONTAINER_NAME $IMAGE_URI:$VERSION
+
+      - name: Verify application
+        run: |
+          docker ps -a | grep $CONTAINER_NAME
+          docker logs $CONTAINER_NAME
+          docker logs $CONTAINER_NAME | grep "Hello World!"
+
+      - name: Push version commit and tag
+        run: |
+          git push origin HEAD:${{ github.ref_name }} --follow-tags
